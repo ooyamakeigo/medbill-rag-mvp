@@ -1,0 +1,19 @@
+# python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# env
+.env
+.env.*
+
+# local outputs / data (avoid PHI in repo)
+data/
+outputs/
+*.log
+
+# editor
+.vscode/
+.idea/
