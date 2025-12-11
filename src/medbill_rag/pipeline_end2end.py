@@ -10,9 +10,10 @@ from .gcs_case import upload_json_to_bill_outputs, upload_text_to_bill_outputs
 from .client import get_genai_client
 from .config import settings
 from .prompts import build_reduction_prompt
-from .report_writer import build_report_md
+from .report_writer import build_report_md_prompt
 from .email_writer import build_user_email_prompt
-from .hospital_letter_writer import build_patient_led_hospital_letter
+from .hospital_letter_writer import build_hospital_letter_prompt
+from .rest_client import generate_content as generate_content_rest
 
 
 def run_bill_folder(bill_folder_id: str) -> dict:
@@ -80,50 +81,98 @@ def run_bill_folder(bill_folder_id: str) -> dict:
     global_kb = load_local_global_kb_text(str(project_root / "rag_base"))
     overlay_kb = ""  # MVP: keep empty; add real overlay retrieval later
 
+    # Build prompt for findings.json with proper parameters
     prompt = build_reduction_prompt(
+        meta=meta,
+        bill_texts={
+            "eob_text": eob_text,
+            "itemized_text": itemized_text,
+            "statement_text": statement_text,
+        },
+        retrieved_docs_text="",
         eob_text=eob_text,
         itemized_text=itemized_text,
         statement_text=statement_text,
         global_kb=global_kb,
         overlay_kb=overlay_kb,
-        meta=meta,
     )
 
-    client = get_genai_client()
-    resp = client.models.generate_content(
-        model=settings.model_id,
-        contents=[prompt],
-        config={"response_mime_type":"application/json"},
-    )
+    # Use REST API for gemini-3-pro-preview, SDK for others
+    if settings.model_id == "gemini-3-pro-preview":
+        resp = generate_content_rest(
+            model_id=settings.model_id,
+            contents=[prompt],
+            config={"response_mime_type": "application/json"},
+        )
+    else:
+        client = get_genai_client()
+        resp = client.models.generate_content(
+            model=settings.model_id,
+            contents=[prompt],
+            config={"response_mime_type":"application/json"},
+        )
     findings_json = json.loads(resp.text)
 
     # 1) findings.json
     upload_json_to_bill_outputs(bill_folder_id, "findings.json", findings_json)
 
-    # 2) report.md
-    report_md = build_report_md(bill_folder_id, meta, findings_json)
+    # 2) report.md (now LLM-generated)
+    report_prompt = build_report_md_prompt(bill_folder_id, meta, findings_json)
+    # Use REST API for gemini-3-pro-preview, SDK for others
+    if settings.model_id == "gemini-3-pro-preview":
+        report_resp = generate_content_rest(
+            model_id=settings.model_id,
+            contents=[report_prompt],
+        )
+    else:
+        client = get_genai_client()
+        report_resp = client.models.generate_content(
+            model=settings.model_id,
+            contents=[report_prompt],
+        )
     upload_text_to_bill_outputs(
         bill_folder_id,
         "report.md",
-        report_md,
+        report_resp.text,
         content_type="text/markdown; charset=utf-8"
     )
 
     # 3) email_draft.txt
-    email_prompt = build_user_email_prompt(None, findings_json)
-    email_resp = client.models.generate_content(
-        model=settings.model_id,
-        contents=[email_prompt],
-    )
+    email_prompt = build_user_email_prompt(None, findings_json, meta)
+    # Use REST API for gemini-3-pro-preview, SDK for others
+    if settings.model_id == "gemini-3-pro-preview":
+        email_resp = generate_content_rest(
+            model_id=settings.model_id,
+            contents=[email_prompt],
+        )
+    else:
+        client = get_genai_client()
+        email_resp = client.models.generate_content(
+            model=settings.model_id,
+            contents=[email_prompt],
+        )
     upload_text_to_bill_outputs(bill_folder_id, "email_draft.txt", email_resp.text)
 
-    # 4) hospital_letter_for_docs.txt  ← NEW
+    # 4) hospital_letter_for_docs.txt
     #    患者主導・署名欄付きの説明/交渉ドキュメント（Google Docs 貼り付け用）
-    hospital_letter = build_patient_led_hospital_letter(meta, findings_json)
+    #    Now LLM-generated instead of template-based
+    hospital_letter_prompt = build_hospital_letter_prompt(meta, findings_json, user_name=None)
+    # Use REST API for gemini-3-pro-preview, SDK for others
+    if settings.model_id == "gemini-3-pro-preview":
+        hospital_letter_resp = generate_content_rest(
+            model_id=settings.model_id,
+            contents=[hospital_letter_prompt],
+        )
+    else:
+        client = get_genai_client()
+        hospital_letter_resp = client.models.generate_content(
+            model=settings.model_id,
+            contents=[hospital_letter_prompt],
+        )
     upload_text_to_bill_outputs(
         bill_folder_id,
         "hospital_letter_for_docs.txt",
-        hospital_letter,
+        hospital_letter_resp.text,
         content_type="text/plain; charset=utf-8"
     )
 

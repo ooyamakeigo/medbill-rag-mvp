@@ -1,6 +1,7 @@
 import json
 from .client import get_genai_client
 from .config import settings
+from .rest_client import generate_content as generate_content_rest
 
 EXTRACT_PROMPT = """
 You are extracting structured data from US medical billing documents.
@@ -20,10 +21,18 @@ If unknown, use null.
 """
 
 def extract_from_text(text: str) -> dict:
-    client = get_genai_client()
-    resp = client.models.generate_content(
-        model=settings.model_id,
-        contents=[EXTRACT_PROMPT, text],
-        config={"response_mime_type": "application/json"},
-    )
+    # Use REST API for gemini-3-pro-preview, SDK for others
+    if settings.model_id == "gemini-3-pro-preview":
+        resp = generate_content_rest(
+            model_id=settings.model_id,
+            contents=[EXTRACT_PROMPT, text],
+            config={"response_mime_type": "application/json"},
+        )
+    else:
+        client = get_genai_client()
+        resp = client.models.generate_content(
+            model=settings.model_id,
+            contents=[EXTRACT_PROMPT, text],
+            config={"response_mime_type": "application/json"},
+        )
     return json.loads(resp.text)

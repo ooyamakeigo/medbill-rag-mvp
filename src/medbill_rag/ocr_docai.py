@@ -1,24 +1,39 @@
-from google.cloud import documentai
-from google.api_core.client_options import ClientOptions
-from .config import settings
+from typing import Optional
+from google.cloud import documentai_v1 as documentai
 
-def ocr_gcs_file(gcs_uri: str, mime_type: str, processor_id=None) -> str:
-    pid = processor_id or settings.default_ocr_processor_id
-    if not pid:
-        raise ValueError("DEFAULT_OCR_PROCESSOR_ID not set")
+from .config import Config
 
-    # Use docai-specific location
-    doc_loc = settings.docai_location
 
-    # Endpoint pattern supports multi-region like "us" -> "us-documentai.googleapis.com"
-    opts = ClientOptions(api_endpoint=f"{doc_loc}-documentai.googleapis.com")
-    client = documentai.DocumentProcessorServiceClient(client_options=opts)
+def ocr_gcs_file(
+    gcs_uri: str,
+    mime_type: str,
+    processor_id: Optional[str] = None,
+    cfg: Optional[Config] = None,
+) -> str:
+    """
+    OCR a single file in GCS using Document AI.
+    Returns plain text.
+    """
+    if not gcs_uri:
+        return ""
 
-    name = client.processor_path(settings.project_id, doc_loc, pid)
+    cfg = cfg or Config.from_env()
+    pid = processor_id or cfg.docai_processor_id
+    loc = cfg.docai_location
+
+    client = documentai.DocumentProcessorServiceClient(
+        client_options={"api_endpoint": f"{loc}-documentai.googleapis.com"}
+    )
+    name = client.processor_path(cfg.project_id, loc, pid)
 
     request = documentai.ProcessRequest(
         name=name,
-        gcs_document=documentai.GcsDocument(gcs_uri=gcs_uri, mime_type=mime_type)
+        gcs_document=documentai.GcsDocument(
+            gcs_uri=gcs_uri,
+            mime_type=mime_type,
+        ),
     )
+
     result = client.process_document(request=request)
-    return result.document.text or ""
+    doc = result.document
+    return doc.text or ""
