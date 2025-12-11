@@ -64,6 +64,9 @@ class Config:
     # backward compatible (if someone still sets old vars)
     annual_income_usd: Optional[float] = None  # not used unless range missing
 
+    # Output file naming prefix
+    output_file_header: str = ""
+
     @classmethod
     def from_env(cls) -> "Config":
         # Prefer new correct vars; fall back to older ones if present
@@ -100,6 +103,7 @@ class Config:
             household_size=household,
             annual_income_range=income_range,
             annual_income_usd=annual_income_usd_val,
+            output_file_header=_opt("OUTPUT_FILE_HEADER", ""),
         )
 
 
@@ -128,6 +132,9 @@ class _SettingsProxy:
             # correct user profile keys
             "HOUSEHOLD_SIZE": "household_size",
             "ANNUAL_INCOME_RANGE": "annual_income_range",
+
+            # output file header
+            "OUTPUT_FILE_HEADER": "output_file_header",
 
             # allow direct
             "use_vertex": "use_vertex",

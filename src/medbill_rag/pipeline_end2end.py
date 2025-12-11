@@ -17,6 +17,12 @@ from .hospital_letter_writer import build_hospital_letter_prompt
 from .rest_client import generate_content as generate_content_rest
 
 
+def _output_filename(base_name: str) -> str:
+    """Add OUTPUT_FILE_HEADER prefix to filename if set."""
+    header = settings.output_file_header or ""
+    return f"{header}{base_name}" if header else base_name
+
+
 def run_bill_folder(bill_folder_id: str) -> dict:
     files = list_bill_folder_files(bill_folder_id)
     if not files:
@@ -36,9 +42,9 @@ def run_bill_folder(bill_folder_id: str) -> dict:
     statement_text = ocr_one(picked.get("STATEMENT"))
 
     # Persist raw OCR text artifacts for debugging/review
-    upload_text_to_bill_outputs(bill_folder_id, "eob_text.txt", eob_text or "")
-    upload_text_to_bill_outputs(bill_folder_id, "itemized_text.txt", itemized_text or "")
-    upload_text_to_bill_outputs(bill_folder_id, "statement_text.txt", statement_text or "")
+    upload_text_to_bill_outputs(bill_folder_id, _output_filename("eob_text.txt"), eob_text or "")
+    upload_text_to_bill_outputs(bill_folder_id, _output_filename("itemized_text.txt"), itemized_text or "")
+    upload_text_to_bill_outputs(bill_folder_id, _output_filename("statement_text.txt"), statement_text or "")
 
     extracted = []
     for t in [eob_text, itemized_text, statement_text]:
@@ -86,7 +92,7 @@ def run_bill_folder(bill_folder_id: str) -> dict:
     meta["payer_id"] = pid
 
     # Persist meta for downstream consumers
-    upload_json_to_bill_outputs(bill_folder_id, "meta.json", meta)
+    upload_json_to_bill_outputs(bill_folder_id, _output_filename("meta.json"), meta)
 
     # Load non-PHI base docs locally
     project_root = Path(__file__).resolve().parents[2]
@@ -126,7 +132,7 @@ def run_bill_folder(bill_folder_id: str) -> dict:
     findings_json = json.loads(resp.text)
 
     # 1) findings.json
-    upload_json_to_bill_outputs(bill_folder_id, "findings.json", findings_json)
+    upload_json_to_bill_outputs(bill_folder_id, _output_filename("findings.json"), findings_json)
 
     # 2) report.md (now LLM-generated)
     report_prompt = build_report_md_prompt(bill_folder_id, meta, findings_json)
@@ -163,7 +169,7 @@ def run_bill_folder(bill_folder_id: str) -> dict:
             model=settings.model_id,
             contents=[email_prompt],
         )
-    upload_text_to_bill_outputs(bill_folder_id, "email_draft.txt", email_resp.text)
+    upload_text_to_bill_outputs(bill_folder_id, _output_filename("email_draft.txt"), email_resp.text)
 
     # 4) hospital_letter_for_docs.txt
     #    患者主導・署名欄付きの説明/交渉ドキュメント（Google Docs 貼り付け用）
@@ -183,7 +189,7 @@ def run_bill_folder(bill_folder_id: str) -> dict:
         )
     upload_text_to_bill_outputs(
         bill_folder_id,
-        "hospital_letter_for_docs.txt",
+        _output_filename("hospital_letter_for_docs.txt"),
         hospital_letter_resp.text,
         content_type="text/plain; charset=utf-8"
     )
@@ -204,7 +210,7 @@ def run_bill_folder(bill_folder_id: str) -> dict:
     )
     upload_text_to_bill_outputs(
         bill_folder_id,
-        "hospital_letter_for_docs_redacted.txt",
+        _output_filename("hospital_letter_for_docs_redacted.txt"),
         redaction_resp.text,
         content_type="text/plain; charset=utf-8"
     )
