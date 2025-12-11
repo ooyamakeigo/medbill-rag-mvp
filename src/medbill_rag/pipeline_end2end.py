@@ -188,6 +188,27 @@ def run_bill_folder(bill_folder_id: str) -> dict:
         content_type="text/plain; charset=utf-8"
     )
 
+    # 4b) Redact personal info from the hospital letter using Gemini 2.5 Flash (for safe re-use with other LLMs)
+    redact_prompt = f"""
+    You will be given a patient-led hospital billing letter. Redact or replace ALL personally identifiable information (PII/PHI), including:
+    - Names, dates of birth, addresses, phone numbers, emails
+    - Account numbers, claim numbers, policy numbers, medical record numbers
+    - Bill folder IDs, signature lines with names/dates
+    Replace each with "[REDACTED]" while keeping the rest of the letter structure intact and readable.
+    Return ONLY the redacted letter text.
+    """
+
+    redaction_resp = generate_content_rest(
+        model_id="gemini-2.5-flash",
+        contents=[redact_prompt, hospital_letter_resp.text],
+    )
+    upload_text_to_bill_outputs(
+        bill_folder_id,
+        "hospital_letter_for_docs_redacted.txt",
+        redaction_resp.text,
+        content_type="text/plain; charset=utf-8"
+    )
+
     return {
         "bill_folder_id": bill_folder_id,
         "meta": meta,

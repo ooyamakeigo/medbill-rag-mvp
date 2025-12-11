@@ -1,16 +1,16 @@
 from __future__ import annotations
 from typing import Any, Dict, List
 
-# 「患者主導」であることを明記した、非弁/非医療を意識した文面テンプレ
-# - 具体的な減額・修正要求の“論点”は記述するが
-# - 法律行為の代理や断定的な法的主張、威圧的表現は避ける
-# - 署名欄で「患者自身が内容に同意し送付する」ことを明確にする
-
 
 def build_hospital_letter_prompt(meta: Dict[str, Any], findings_json: Dict[str, Any], user_name: str = None) -> str:
     """
-    Build prompt for generating patient-led hospital letter using LLM.
+    Build prompt for generating a patient-led hospital letter using LLM.
     This letter will be sent to the hospital's billing department.
+
+    Goal:
+    - Patient-led, non-legalistic, non-threatening
+    - Clear, concrete, and administratively useful for PFS/billing staff
+    - Focus on 2–3 highest-impact topics, not every tiny discrepancy
     """
     provider = meta.get("provider_name") or "[Hospital / Facility Name]"
     state = meta.get("provider_state") or ""
@@ -43,383 +43,170 @@ def build_hospital_letter_prompt(meta: Dict[str, Any], findings_json: Dict[str, 
     if not isinstance(findings, list):
         findings = []
 
-    # Calculate total potential reduction
-    total_reduction = 0
+    # Rough total potential reduction – for context only, not to be promised in the letter
+    total_reduction = 0.0
     for f in findings:
         reduction_amt = f.get("estimated_reduction_amount", "")
         if reduction_amt and "$" in str(reduction_amt):
             try:
                 import re
-                amounts = re.findall(r'\$[\d,]+\.?\d*', str(reduction_amt))
+                amounts = re.findall(r"\$[\d,]+\.?\d*", str(reduction_amt))
                 if amounts:
                     amt_str = amounts[0].replace("$", "").replace(",", "")
                     amt = float(amt_str)
                     total_reduction += amt
-            except:
+            except Exception:
                 pass
 
     total_reduction_line = f"${total_reduction:,.2f}" if total_reduction > 0 else "TBD (requires additional information)"
 
     return f"""
-You are writing a professional, patient-led letter to a hospital's billing department requesting bill review and reduction.
+You are writing a professional, **patient-led** letter to a hospital's billing / patient financial services department
+requesting a review of the patient's bill and potential reduction options.
 
 This letter MUST be written as if the PATIENT THEMSELVES wrote it. The tone should be:
 - Professional and respectful
-- Clear and specific about reduction requests
+- Clear and specific about what the patient is asking the hospital to review
 - Patient-led (not from a third party)
-- Non-accusatory but firm about rights
-- Focused on administrative review, not legal threats
+- Non-accusatory and non-threatening
+- Focused on administrative review and clarification, not legal demands or aggressive rights language
 
-[Letter Recipient]
-To: Patient Financial Services / Billing Department
-Hospital/Facility: {provider} {f'({state})' if state else ''}
+Use the metadata and analysis findings below as *background only*:
 
-[Patient Information]
-Patient Name: {user_name or "[Your Full Name]"}
-Date of Birth: [MM/DD/YYYY]
-Account Number(s): [If known]
-Claim Number(s): [If known]
-Phone / Email: [Your Contact Info]
+[Case Metadata]
+- Hospital/Facility: {provider} {f"({state})" if state else ""}
+- Insurance/Payer: {payer}{f" / {plan}" if plan else ""}
+- Dates of Service: {dos_from} to {dos_to}
+- Total charges (if known): {total_charge_line}
+- Current patient responsibility (if known): {patient_resp_line}
+- Rough estimated reduction opportunity (for your context, NOT to be promised): {total_reduction_line}
 
-[Case Details]
-Dates of Service: {dos_from} to {dos_to}
-Insurance (if applicable): {payer} {f' / {plan}' if plan else ''}
-Total charges shown: {total_charge_line}
-Amount currently billed to me: {patient_resp_line}
-Estimated total reduction potential: {total_reduction_line}
-
-[Analysis Findings]
+[Analysis Findings JSON – FOR YOUR REFERENCE ONLY, DO NOT COPY RAW JSON]
 {findings_json}
+
+The JSON above contains one or more findings with:
+- type, confidence, reduction_opportunity, legal_basis, estimated_reduction_amount, current_amount,
+- evidence_quotes, missing_info, next_actions, etc.
+
+You MUST use this JSON as internal guidance, BUT:
+- DO NOT include any raw JSON in the letter.
+- DO NOT mention every single finding if there are many.
+- DO NOT include 'MinorDeMinimis' type findings or very small, low-impact amounts as separate numbered items.
+- Focus on at most **2–3 of the most financially meaningful or high-confidence topics**.
 
 [Critical Requirements]
 
-1. **Letter Structure** (follow this exact format):
+1. **Letter Structure** (follow this general structure):
    - Header: "PATIENT-LED BILL REVIEW & ASSISTANCE REQUEST"
    - Subheader: "(Copy/paste into Google Docs, fill placeholders, then sign before sending)"
    - To: Patient Financial Services / Billing Department
    - Hospital/Facility name
-   - Re: line with subject
-   - Patient information section (name, DOB, account numbers, contact)
-   - Dates of service and insurance info
-   - Summary of amounts
-   - Professional greeting
-   - Main body paragraphs
-   - Specific reduction requests section
-   - Requested actions section
-   - Closing paragraph
-   - Patient attestation section
+   - Re: line with subject (e.g., "Request for Bill Review, Coding Verification, and Payment Options")
+   - [Patient Information] section (name, DOB, account numbers, contact)
+   - [Case Details] section (dates of service, insurance, summary of amounts)
+   - A short introductory paragraph explaining why the patient is writing
+   - 2–3 numbered sections, each corresponding to a key review topic derived from findings_json
+   - A "Requested Actions" section summarizing what the patient is asking the hospital to do
+   - A closing paragraph
+   - A Patient Attestation section (provided below)
    - Signature lines
    - Attachments list
 
-2. **Main Body Content** - MUST include for EACH finding:
-   a) **WHAT can be reduced**:
-      - Specific line items, charges, or portions of the bill
-      - Be very specific (e.g., "Line item 12345 for $2,500", "Entire bill eligible for charity care", "OON balance billing of $1,200")
+2. **Main Body Content – For each chosen finding (max 2–3)**:
+   a) **WHAT the patient is asking to review / reduce**:
+      - Use specific, concrete descriptions: e.g., "the $30 copay applied to the office visit on 09/03/25".
+      - Avoid broad statements like "entire bill must be written off" unless the finding has high confidence and strong policy support.
+      - For charity care / FAP in high-income or low-confidence cases, frame it as a request for clarification, not a demand for forgiveness.
 
-   b) **WHY it can be reduced** (legal/policy basis):
-      - Reference specific laws: IRS 501(r), No Surprises Act (NSA), state regulations
-      - Reference hospital policies: FAP (Financial Assistance Policy), self-pay discounts
-      - Reference calculation rules: deductible, copay, coinsurance, OOP max
-      - Be specific: "IRS 501(r) requires your hospital to provide FAP for households at or below 200% FPL"
-      - Quote policy sections when available
+   b) **WHY the patient believes it might be adjustable** (legal/policy/administrative basis):
+      - When referencing laws or regulations (e.g., ACA preventive services, IRS 501(r), NSA), phrase them as the patient's understanding, for example:
+        * "My understanding is that many non-grandfathered plans cover qualifying preventive services at no cost to the patient."
+        * "My understanding is that non-profit hospitals maintain a Financial Assistance Policy under IRS 501(r)."
+      - Avoid absolute legal conclusions like "this violates the law" or "this is only valid if...".
+      - Use soft, administrative language: "I would appreciate it if your team could review whether this is consistent with your policies and my plan's rules."
 
-   c) **HOW MUCH can be reduced**:
-      - Include specific dollar amounts when available
-      - If amount is calculable, show the calculation or state the exact amount
-      - If amount requires additional info, state what's needed and provide estimate range
-      - Format: "$X,XXX.XX" or "Estimated $X,XXX - $X,XXX" or "Requires [specific info] to calculate"
+   c) **HOW MUCH might be reduced (if appropriate)**:
+      - Use specific amounts or conservative ranges when they exist in findings_json.
+      - Make it clear that these are estimates (e.g., "approximately", "in the range of", "could reduce my balance by around $X").
+      - DO NOT promise a total combined reduction number as something the hospital "must" grant.
 
    d) **Supporting Evidence**:
-      - Quote relevant sections from documents (EOB, statement, itemized bill)
-      - Reference specific policy documents when available
-      - Include line numbers or charge codes when applicable
+      - Briefly mention relevant lines from the statement/EOB (date, general description, patient responsibility).
+      - Keep quotes short and practical (e.g., "09/03/25 Preventive Service... Your share: 0.00").
+      - Do not over-quote long passages.
 
-3. **Patient-Led Language**:
-   - Write in first person ("I", "my", "me")
-   - Use phrases like:
-     * "I am writing to request..."
-     * "Based on my review of my bill..."
-     * "I believe there may be an error..."
-     * "I would appreciate your review of..."
-   - NEVER use third-party language like "we", "our analysis", "our team"
-   - Make it clear the patient personally reviewed their documents
+   e) **Missing information / openness to provide documents**:
+      - Where findings_json lists "missing_info", mention that you are willing to provide medical notes, income documentation, etc., if needed.
 
-4. **Professional Tone**:
-   - Respectful and courteous
-   - Focus on administrative review, not legal action
-   - Express appreciation for their assistance
-   - Avoid accusatory language
-   - Be firm but polite about rights
+3. **Charity Care / FAP specific guidance**:
+   - If findings_json suggests that income is high relative to FPL, or confidence is "low":
+     * Treat the charity care topic as a **clarification request**, not a stated eligibility.
+     * Use language like:
+       "I understand that my income may be above typical thresholds for standard financial assistance,
+        but I would appreciate clarification on whether any partial discounts, catastrophic relief,
+        or medical indigency review might apply in my situation."
+     * DO NOT state or imply "I qualify" or "the balance should be forgiven".
+   - DO NOT introduce specific FPL multiples (e.g., "up to 500% or 600% FPL") unless those exact numbers are explicitly present in the findings_json or policy text.
 
-5. **Specific Reduction Requests Section**:
-   For each finding, create a numbered section with:
-   - Clear title describing the issue
-   - What can be reduced (specific)
-   - Why it can be reduced (legal/policy basis with citations)
-   - Estimated reduction amount
-   - Supporting evidence quotes
-   - What additional information patient can provide
+4. **Self-pay / Prompt-pay discount guidance**:
+   - Make it clear that any prompt-pay or lump-sum discount is **discretionary**, not legally required.
+   - Use phrasing like:
+     * "I have heard that some hospitals are sometimes able to offer a courtesy discount for immediate payment of large balances."
+     * "If possible, I would like to request a courtesy prompt-pay discount in exchange for paying the remaining balance in full."
+   - Do NOT state that hospitals "must" offer a specific percentage.
+   - You may mention a conservative range (e.g., "around 10–20%") if it appears in findings_json, but frame it as an example, not a demand.
 
-6. **Requested Actions Section**:
-   - List specific actions requested from hospital
-   - Be clear about what patient wants (review, adjustment, application process, etc.)
-   - Include timeline expectations if appropriate
+5. **Preventive services / copay (ACA) guidance**:
+   - Use "PreventiveCostSharingCheck" findings to phrase the issue as:
+     * "My understanding is that many in-network preventive services are covered with no copay."
+     * "Because I see both a preventive service and a separate office visit on the same date, I would appreciate it if you could confirm whether it was appropriate to apply this copay."
+   - Avoid absolute statements like "this split billing is only valid if...".
+   - Emphasize that you are asking for a **coding/coverage review**, not asserting malpractice or wrongdoing.
 
-7. **Patient Attestation** (CRITICAL - must include):
-   Include this exact section before signature:
+6. **Patient-Led Language**:
+   - First-person voice ONLY: "I", "my", "me".
+   - Explicitly acknowledge that you are not a lawyer or medical professional:
+     * e.g., "I am not a legal or medical professional; I am simply trying to understand my bill and ensure it is correct."
+   - You MUST also include **one clear English sentence** stating that the patient has already contacted their insurance company:
+     * Include this exact sentence in the introductory part of the letter, after mentioning that you reviewed your bill and EOB:
+       "I have already contacted my insurance company to ask questions and to clarify how this claim was processed."
+   - Never use third-party language like "we", "our analysis", "our team".
+   - Make it clear that the patient personally reviewed the bill and documents.
 
-   "PATIENT ATTESTATION (Please read before signing)
+7. **Professional Tone**:
+   - Respectful, cooperative, and appreciative.
+   - No threats of legal action or complaints.
+   - You may say that you will wait for the review outcome before finalizing payment decisions, but frame it calmly and reasonably.
+
+8. **Requested Actions Section**:
+   - Summarize the main requests in bullet form, such as:
+     * Review specific copay/charge for coding and coverage consistency.
+     * Confirm whether any financial assistance or discount programs can apply.
+     * Clarify how the deductible and patient responsibility were calculated.
+   - Be explicit about what you are asking PFS to do (review, clarify, consider discount), not what they "must" do legally.
+
+9. **Patient Attestation (CRITICAL - include exactly, or with only minimal formatting changes)**:
+   Include this attestation section before the signature lines:
+
+   PATIENT ATTESTATION (Please read before signing)
    I confirm that this letter reflects my own request for a review of my bill and available assistance options.
    I have personally reviewed my medical bills, insurance documents, and relevant policies.
    Any third-party support I may have received was administrative or informational in nature and does not constitute legal or medical advice.
-   I understand that I am responsible for the content I choose to send and I am sending this letter under my own name and authority."
+   I understand that I am responsible for the content I choose to send and I am sending this letter under my own name and authority.
 
-8. **Signature Section** (must include):
-   - Patient Signature line: "Patient Signature: _______________________________   Date: _______________"
-   - Printed Name line: "Printed Name: ____________________________________"
-   - Note: These are placeholders for the patient to fill in
+10. **Signature Section**:
+    - Patient Signature line: "Patient Signature: _______________________________   Date: _______________"
+    - Printed Name line: "Printed Name: ____________________________________"
 
-9. **Attachments List**:
-   - List documents that should be attached (Statement, Itemized Bill, EOB, etc.)
+11. **Attachments List**:
+    - List typical attachments: statement, itemized bill, EOB, and any other relevant docs.
 
 [Format Guidelines]
-- Use clear, professional business letter format
-- Single-spaced, readable paragraphs
-- Use bullet points for lists
-- Include specific dollar amounts formatted as $X,XXX.XX
-- Keep paragraphs concise but complete
-- Make it easy to scan and understand
+- Use a clear, professional letter style that will paste cleanly into Google Docs.
+- Headings and bullet points are okay (Markdown-style **bold** is acceptable, but not required).
+- Keep paragraphs concise but complete.
+- Make it easy for the hospital billing staff to quickly see what you are asking them to review and what information you are providing.
 
-[Important Notes]
-- This letter will be copied into Google Docs and sent to the hospital
-- The patient will sign it themselves
-- It must sound like the patient wrote it personally
-- Include all specific reduction opportunities with amounts
-- Reference legal/policy basis for each request
-- Be professional and respectful throughout
-
-Generate the complete letter now, following all requirements above.
+Generate the **complete letter now**, following all requirements above.
+It should be a single cohesive letter, written in the patient's voice, ready to paste into Google Docs.
 """
-
-
-HIGH_IMPACT_ORDER = [
-    "CharityCareEligibility",
-    "FAPLimitAGB",
-    "FinancialAssistance",
-    "SelfPayDiscount",
-    "PromptPay",
-    "NSA_OONBalanceBilling",
-    "NetworkMismatch",
-    "BenefitCalcError",
-    "OOPMaxError",
-    "EOBMismatch",
-    "Duplicate",
-    "Units",
-    "Unbundling",
-    "TimeMismatch",
-    "WrongCode",
-    "ModifierError",
-    "POSMismatch",
-    "StatusMismatch",
-    "DRGError",
-    "MUEError",
-]
-
-FINDING_FRIENDLY = {
-    "CharityCareEligibility": "Financial Assistance / Charity Care eligibility review",
-    "FAPLimitAGB": "501(r) / AGB related charge limit review (if applicable to this hospital)",
-    "FinancialAssistance": "Financial assistance screening and application support",
-    "SelfPayDiscount": "Self-pay / uninsured discount review",
-    "PromptPay": "Prompt-pay / paid-in-full discount review",
-    "NSA_OONBalanceBilling": "No Surprises Act / out-of-network balance billing compliance check",
-    "NetworkMismatch": "In-network vs out-of-network classification review",
-    "BenefitCalcError": "Insurance benefit calculation / patient responsibility accuracy review",
-    "OOPMaxError": "Out-of-pocket maximum application review",
-    "EOBMismatch": "Reconciliation between hospital bill and insurer EOB",
-    "Duplicate": "Duplicate charge review",
-    "Units": "Units/quantity reasonableness review",
-    "Unbundling": "Bundling / NCCI-style consistency review",
-    "TimeMismatch": "Time/length-of-stay consistency review",
-    "WrongCode": "Coding / revenue code accuracy review",
-    "ModifierError": "Modifier usage review",
-    "POSMismatch": "Place of service classification review",
-    "StatusMismatch": "Observation vs inpatient status review",
-    "DRGError": "DRG assignment review",
-    "MUEError": "MUE / structural quantity outlier review",
-}
-
-def _sort_findings(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    order_index = {k: i for i, k in enumerate(HIGH_IMPACT_ORDER)}
-    return sorted(
-        findings,
-        key=lambda f: order_index.get(str(f.get("type")), 999)
-    )
-
-def _extract_evidence_quotes(f: Dict[str, Any], limit: int = 3) -> List[str]:
-    # evidence_quotes が文字列配列 or dict配列のどちらでも安全に処理
-    eq = f.get("evidence_quotes") or []
-    out: List[str] = []
-
-    if isinstance(eq, list):
-        for item in eq:
-            if isinstance(item, str) and item.strip():
-                out.append(item.strip())
-            elif isinstance(item, dict):
-                txt = item.get("quote") or item.get("text") or ""
-                label = item.get("source") or item.get("label") or ""
-                txt = str(txt).strip()
-                label = str(label).strip()
-                if txt:
-                    out.append(f"{label}: {txt}" if label else txt)
-            if len(out) >= limit:
-                break
-    elif isinstance(eq, str) and eq.strip():
-        out.append(eq.strip())
-
-    return out[:limit]
-
-def build_patient_led_hospital_letter(meta: Dict[str, Any], findings_json: Dict[str, Any]) -> str:
-    provider = meta.get("provider_name") or "[Hospital / Facility Name]"
-    state = meta.get("provider_state") or ""
-    payer = meta.get("payer_name") or "[Insurance (if applicable)]"
-    plan = meta.get("plan_name") or ""
-
-    dos_from = meta.get("dos_from") or "[Service Date From]"
-    dos_to = meta.get("dos_to") or "[Service Date To]"
-    total_charge = meta.get("total_charge") or "[Total Charges]"
-    patient_resp = meta.get("patient_responsibility") or "[Patient Balance / Responsibility]"
-
-    findings = findings_json.get("findings") or []
-    if not isinstance(findings, list):
-        findings = []
-
-    findings = _sort_findings(findings)
-
-    # 署名欄の“患者主導”明記を強化
-    patient_attestation = """
-PATIENT ATTESTATION (Please read before signing)
-I confirm that this letter reflects my own request for a review of my bill and available assistance options.
-Any third-party support I may have received was administrative or informational in nature and does not constitute legal or medical advice.
-I understand that I am responsible for the content I choose to send and I am sending this letter under my own name and authority.
-""".strip()
-
-    # 本文（Google Docs に貼って完成する体裁）
-    lines: List[str] = []
-
-    lines.append("PATIENT-LED BILL REVIEW & ASSISTANCE REQUEST")
-    lines.append("(Copy/paste into Google Docs, fill placeholders, then sign before sending)")
-    lines.append("")
-    lines.append("To: Patient Financial Services / Billing Department")
-    lines.append(f"Hospital/Facility: {provider} {f'({state})' if state else ''}")
-    lines.append("")
-    lines.append("Re: Request for review of charges, insurance processing, and available patient assistance options")
-    lines.append("")
-    lines.append("Patient Name: [Your Full Name]")
-    lines.append("Date of Birth: [MM/DD/YYYY]")
-    lines.append("Account Number(s): [If known]")
-    lines.append("Claim Number(s): [If known]")
-    lines.append("Phone / Email: [Your Contact Info]")
-    lines.append("")
-    lines.append(f"Dates of Service: {dos_from} to {dos_to}")
-    lines.append(f"Insurance (if applicable): {payer} {f' / {plan}' if plan else ''}")
-    lines.append("")
-    lines.append("Summary of amounts (per my current records):")
-    lines.append(f"- Total charges shown: {total_charge}")
-    lines.append(f"- Amount currently billed to me / patient responsibility: {patient_resp}")
-    lines.append("")
-    lines.append("Dear Patient Financial Services Team,")
-    lines.append("")
-    lines.append(
-        "I am writing to request a careful review of my bill and related insurance processing for the dates of service listed above. "
-        "Before I arrange payment, I would appreciate your help confirming charge accuracy, correcting any discrepancies, and "
-        "reviewing whether I qualify for any assistance or discounts your hospital offers."
-    )
-    lines.append("")
-    lines.append(
-        "This is a patient-led request intended to ensure accurate billing and fair application of hospital policies and applicable coverage rules. "
-        "I am not requesting legal representation, and I am not asserting any allegation beyond asking for an administrative review and correction where appropriate."
-    )
-    lines.append("")
-
-    # 具体論点セクション
-    if findings:
-        lines.append("Key review topics based on my documents:")
-        lines.append("")
-
-        for idx, f in enumerate(findings, start=1):
-            ftype = str(f.get("type") or "Unknown")
-            conf = f.get("confidence")
-            conf_str = ""
-            if isinstance(conf, (int, float)):
-                conf_str = f" (confidence: {conf:.2f})"
-
-            title = FINDING_FRIENDLY.get(ftype, ftype)
-
-            lines.append(f"{idx}. {title}{conf_str}")
-            lines.append("   - Why I’m requesting this review:")
-            lines.append(
-                "     Based on the bill/EOB/statement I currently have, this area may warrant verification for accuracy and policy compliance. "
-                "I would appreciate your team confirming whether an adjustment, reprocessing, or application of a hospital discount/assistance rule is appropriate."
-            )
-
-            # evidence quote（短く）
-            ev = _extract_evidence_quotes(f, limit=3)
-            if ev:
-                lines.append("   - Supporting lines from my documents (for your reference):")
-                for q in ev:
-                    # 長すぎる引用は避けつつ、貼り付けやすい体裁
-                    qt = q.strip()
-                    if len(qt) > 260:
-                        qt = qt[:260] + "..."
-                    lines.append(f"     • {qt}")
-
-            # next actions（患者に必要な追加資料）
-            na = f.get("next_actions") or []
-            if isinstance(na, list) and na:
-                lines.append("   - Additional information I can provide if needed:")
-                for a in na[:4]:
-                    a = str(a).strip()
-                    if a:
-                        lines.append(f"     • {a}")
-
-            lines.append("")
-
-    else:
-        lines.append("Key review topics:")
-        lines.append("")
-        lines.append("1. Charge accuracy check (line-item validation if available)")
-        lines.append("2. Insurance processing and patient responsibility calculation")
-        lines.append("3. Financial assistance / hardship review, if offered by this hospital")
-        lines.append("4. Self-pay or prompt-pay discounts, if applicable")
-        lines.append("")
-
-    # 依頼事項の明確化
-    lines.append("Requested actions:")
-    lines.append("• Please provide or confirm an itemized bill if not already provided.")
-    lines.append("• Please review the charges for accuracy, including any potential duplicates, unit/quantity anomalies, or bundled service consistency.")
-    lines.append("• Please reconcile any differences between the hospital billing and insurer EOB (if applicable).")
-    lines.append("• Please confirm whether I qualify for financial assistance, hardship programs, self-pay discounts, or prompt-pay options.")
-    lines.append("• If corrections or reprocessing are needed, please advise me of the expected next steps and timeline.")
-    lines.append("")
-
-    # 丁寧な締め
-    lines.append(
-        "I appreciate your assistance and your time. My goal is to resolve this matter promptly once I understand the accurate balance "
-        "and any available programs that may reduce my out-of-pocket burden."
-    )
-    lines.append("")
-
-    # 署名・患者主導明記
-    lines.append(patient_attestation)
-    lines.append("")
-    lines.append("Patient Signature: _______________________________   Date: _______________")
-    lines.append("Printed Name: ____________________________________")
-    lines.append("")
-    lines.append("Attachments (as applicable):")
-    lines.append("• Statement")
-    lines.append("• Itemized Bill (if provided)")
-    lines.append("• EOB (if provided)")
-    lines.append("• Any supporting documents requested by the hospital (income verification, insurance card, etc.)")
-    lines.append("")
-
-    return "\n".join(lines)
