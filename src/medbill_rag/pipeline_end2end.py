@@ -4,6 +4,7 @@ from pathlib import Path
 from .case_discovery import list_bill_folder_files, pick_best_by_kind
 from .ocr_docai import ocr_gcs_file
 from .extract_structured import extract_from_text
+from .extract_meta import _inject_known_user_inputs
 from .hydrate_overlay import ensure_hospital_overlay, ensure_payer_overlay
 from .gcs_kb import load_local_global_kb_text
 from .gcs_case import upload_json_to_bill_outputs, upload_text_to_bill_outputs
@@ -34,6 +35,11 @@ def run_bill_folder(bill_folder_id: str) -> dict:
     itemized_text = ocr_one(picked.get("ITEMIZED"))
     statement_text = ocr_one(picked.get("STATEMENT"))
 
+    # Persist raw OCR text artifacts for debugging/review
+    upload_text_to_bill_outputs(bill_folder_id, "eob_text.txt", eob_text or "")
+    upload_text_to_bill_outputs(bill_folder_id, "itemized_text.txt", itemized_text or "")
+    upload_text_to_bill_outputs(bill_folder_id, "statement_text.txt", statement_text or "")
+
     extracted = []
     for t in [eob_text, itemized_text, statement_text]:
         if t and t.strip():
@@ -61,6 +67,9 @@ def run_bill_folder(bill_folder_id: str) -> dict:
             if meta.get(k) is None and m.get(k) is not None:
                 meta[k] = m.get(k)
 
+    # Inject known user inputs (household size, income range) from env
+    meta = _inject_known_user_inputs(meta, settings._get())
+
     # ===== Overlay (optional in MVP) =====
     hid = None
     pid = None
@@ -75,6 +84,9 @@ def run_bill_folder(bill_folder_id: str) -> dict:
 
     meta["hospital_id"] = hid
     meta["payer_id"] = pid
+
+    # Persist meta for downstream consumers
+    upload_json_to_bill_outputs(bill_folder_id, "meta.json", meta)
 
     # Load non-PHI base docs locally
     project_root = Path(__file__).resolve().parents[2]
